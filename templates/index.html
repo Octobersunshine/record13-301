@@ -19,10 +19,15 @@ h1{text-align:center;font-size:1.8rem;margin-bottom:8px;color:#1a1a2e}
 .upload-box .hint{font-size:.82rem;color:#999}
 .upload-box .filename{font-size:.88rem;color:#4361ee;margin-top:8px;font-weight:500;word-break:break-all}
 .upload-box input[type=file]{display:none}
-.btn-row{text-align:center;margin-bottom:30px}
+.btn-row{text-align:center;margin-bottom:30px;display:flex;gap:12px;justify-content:center;align-items:center}
 .btn-compare{background:#4361ee;color:#fff;border:none;padding:12px 48px;border-radius:8px;font-size:1.05rem;font-weight:600;cursor:pointer;transition:background .2s}
 .btn-compare:hover{background:#3a56d4}
 .btn-compare:disabled{background:#a0a8c0;cursor:not-allowed}
+.btn-download{background:#fff;color:#4361ee;border:2px solid #4361ee;padding:12px 28px;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;transition:all .2s;display:none;align-items:center;gap:8px}
+.btn-download:hover{background:#f0f3ff}
+.btn-download:disabled{opacity:.5;cursor:not-allowed}
+.btn-download.visible{display:inline-flex}
+@keyframes spin{to{transform:rotate(360deg)}}
 .result{display:none}
 .result.visible{display:block}
 .summary{display:flex;gap:16px;margin-bottom:24px;justify-content:center}
@@ -87,6 +92,7 @@ h1{text-align:center;font-size:1.8rem;margin-bottom:8px;color:#1a1a2e}
 
   <div class="btn-row">
     <button class="btn-compare" id="btn-compare" disabled>开始对比</button>
+    <button class="btn-download" id="btn-download" disabled>📥 下载 HTML 报告</button>
   </div>
 
   <div class="loading" id="loading"><div class="spinner"></div><p style="margin-top:12px;color:#888">正在对比...</p></div>
@@ -126,12 +132,15 @@ const boxB = document.getElementById('box-b');
 const nameA = document.getElementById('name-a');
 const nameB = document.getElementById('name-b');
 const btn = document.getElementById('btn-compare');
+const btnDownload = document.getElementById('btn-download');
 const loading = document.getElementById('loading');
 const result = document.getElementById('result');
 const errMsg = document.getElementById('error-msg');
 
 function updateBtn() {
   btn.disabled = !(fileA.files.length && fileB.files.length);
+  btnDownload.classList.remove('visible');
+  btnDownload.disabled = true;
 }
 fileA.addEventListener('change', () => {
   if (fileA.files.length) {
@@ -170,6 +179,38 @@ document.querySelectorAll('.tab').forEach(tab => {
     tab.classList.add('active');
     document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
   });
+});
+
+btnDownload.addEventListener('click', () => {
+  if (!fileA.files[0] || !fileB.files[0]) return;
+  const fd = new FormData();
+  fd.append('file_a', fileA.files[0]);
+  fd.append('file_b', fileB.files[0]);
+  btnDownload.disabled = true;
+  btnDownload.textContent = '⏳ 生成中...';
+  fetch('/api/compare/html', { method: 'POST', body: fd })
+    .then(resp => {
+      if (!resp.ok) throw new Error('生成报告失败');
+      return resp.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `diff_report_${Date.now()}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    })
+    .catch(e => {
+      errMsg.textContent = e.message;
+      errMsg.style.display = 'block';
+    })
+    .finally(() => {
+      btnDownload.disabled = false;
+      btnDownload.textContent = '📥 下载 HTML 报告';
+    });
 });
 
 btn.addEventListener('click', async () => {
@@ -255,7 +296,8 @@ function handleStreamEvent(data) {
   } else if (data.type === 'chunk') {
     appendChunk(data);
   } else if (data.type === 'end') {
-    // 对比完成
+    btnDownload.classList.add('visible');
+    btnDownload.disabled = false;
   } else if (data.type === 'error') {
     errMsg.textContent = data.error || '流式对比出错';
     errMsg.style.display = 'block';

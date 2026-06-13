@@ -255,6 +255,420 @@ def compare_texts(text_a: str, text_b: str, filename_a: str, filename_b: str):
     }
 
 
+HTML_REPORT_CSS = """
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: #fff;
+  color: #24292e;
+  line-height: 1.5;
+  padding: 20px;
+}
+.report-header {
+  background: #f6f8fa;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+.report-header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #24292e;
+}
+.report-meta {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #586069;
+}
+.meta-item span { font-weight: 600; color: #24292e; }
+.summary {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e1e4e8;
+}
+.summary-card {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.summary-card.added { background: #e6ffec; color: #1a7f37; }
+.summary-card.deleted { background: #ffebe9; color: #cf222e; }
+.summary-card.modified { background: #fff8c5; color: #9a6700; }
+.file-header {
+  background: #f6f8fa;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px 6px 0 0;
+  padding: 10px 16px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 20px;
+}
+.file-header .old { color: #cf222e; }
+.file-header .new { color: #1a7f37; }
+.file-header .arrow { color: #586069; margin: 0 8px; }
+.hunk-header {
+  background: #f1f8ff;
+  border-left: 1px solid #e1e4e8;
+  border-right: 1px solid #e1e4e8;
+  padding: 6px 12px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  color: #032f62;
+  font-weight: 600;
+}
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  border: 1px solid #e1e4e8;
+  border-top: none;
+}
+.diff-table tr { display: table-row; }
+.diff-table td {
+  padding: 0 8px;
+  white-space: pre;
+  vertical-align: top;
+}
+.diff-table td.empty {
+  width: 1%;
+  background: #fafbfc;
+  border-right: 1px solid #e1e4e8;
+  color: #d1d5da;
+  user-select: none;
+  text-align: right;
+  min-width: 40px;
+}
+.diff-table td.line-num {
+  width: 1%;
+  color: #959da5;
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid #e1e4e8;
+  min-width: 40px;
+  background: #fafbfc;
+}
+.diff-table td.content { width: 48%; }
+.diff-table tr.equal td.line-num { background: #fafbfc; }
+.diff-table tr.equal td.content { background: #fff; }
+.diff-table tr.added td.line-num { background: #e6ffec; }
+.diff-table tr.added td.content { background: #e6ffec; color: #1a7f37; }
+.diff-table tr.deleted td.line-num { background: #ffebe9; }
+.diff-table tr.deleted td.content { background: #ffebe9; color: #cf222e; }
+.diff-table tr.modified-old td.line-num { background: #ffebe9; }
+.diff-table tr.modified-old td.content { background: #ffebe9; color: #cf222e; text-decoration: line-through; }
+.diff-table tr.modified-new td.line-num { background: #e6ffec; }
+.diff-table tr.modified-new td.content { background: #e6ffec; color: #1a7f37; }
+.diff-gutter { width: 1%; background: #fafbfc; user-select: none; text-align: center; min-width: 20px; }
+.diff-gutter.added { background: #e6ffec; color: #1a7f37; font-weight: 600; }
+.diff-gutter.deleted { background: #ffebe9; color: #cf222e; font-weight: 600; }
+.diff-gutter.modified { background: #fff8c5; color: #9a6700; font-weight: 600; }
+.footer { margin-top: 30px; text-align: center; color: #959da5; font-size: 12px; }
+"""
+
+
+def generate_html_report(lines_a, lines_b, filename_a, filename_b, context_lines=3):
+    sm = difflib.SequenceMatcher(None, lines_a, lines_b)
+
+    from datetime import datetime
+
+    total_added = 0
+    total_deleted = 0
+    total_modified = 0
+
+    hunks = []
+    current_hunk = []
+    last_i = -1
+    last_j = -1
+    hunk_start_i = None
+    hunk_start_j = None
+
+    def flush_hunk():
+        if not current_hunk:
+            return
+        if hunk_start_i is None or hunk_start_j is None:
+            return
+        hunk_i_len = (last_i - hunk_start_i + 1) if last_i >= hunk_start_i else 0
+        hunk_j_len = (last_j - hunk_start_j + 1) if last_j >= hunk_start_j else 0
+        hunks.append({
+            "start_i": hunk_start_i,
+            "start_j": hunk_start_j,
+            "len_i": hunk_i_len,
+            "len_j": hunk_j_len,
+            "rows": current_hunk,
+        })
+
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            for idx in range(i2 - i1):
+                i = i1 + idx
+                j = j1 + idx
+                if current_hunk or (hunk_start_i is None):
+                    pass
+                if len(current_hunk) == 0 or (current_hunk and current_hunk[-1]["type"] != "equal"):
+                    flush_hunk()
+                    hunk_start_i = max(0, i - context_lines)
+                    hunk_start_j = max(0, j - context_lines)
+                    current_hunk = []
+                    for ctx_idx in range(context_lines):
+                        ctx_i = i - context_lines + ctx_idx
+                        ctx_j = j - context_lines + ctx_idx
+                        if ctx_i >= 0 and ctx_j >= 0 and ctx_i < i and ctx_j < j:
+                            current_hunk.append({
+                                "type": "equal",
+                                "line_a": ctx_i + 1,
+                                "line_b": ctx_j + 1,
+                                "content": lines_a[ctx_i],
+                            })
+                current_hunk.append({
+                    "type": "equal",
+                    "line_a": i + 1,
+                    "line_b": j + 1,
+                    "content": lines_a[i],
+                })
+                last_i = i
+                last_j = j
+                if len([r for r in current_hunk if r["type"] != "equal"]) > 0:
+                    ctx_count = 0
+                    for r in reversed(current_hunk):
+                        if r["type"] == "equal":
+                            ctx_count += 1
+                        else:
+                            break
+                    if ctx_count > context_lines * 2:
+                        flush_hunk()
+                        hunk_start_i = None
+                        hunk_start_j = None
+                        current_hunk = []
+        elif tag == "replace":
+            a_lines = lines_a[i1:i2]
+            b_lines = lines_b[j1:j2]
+            max_len = max(len(a_lines), len(b_lines))
+            if hunk_start_i is None or hunk_start_j is None:
+                hunk_start_i = max(0, i1 - context_lines)
+                hunk_start_j = max(0, j1 - context_lines)
+                current_hunk = []
+                for ctx_idx in range(context_lines):
+                    ctx_i = i1 - context_lines + ctx_idx
+                    ctx_j = j1 - context_lines + ctx_idx
+                    if ctx_i >= 0 and ctx_j >= 0 and ctx_i < i1 and ctx_j < j1:
+                        current_hunk.append({
+                            "type": "equal",
+                            "line_a": ctx_i + 1,
+                            "line_b": ctx_j + 1,
+                            "content": lines_a[ctx_i],
+                        })
+            for k in range(max_len):
+                if k < len(a_lines) and k < len(b_lines):
+                    current_hunk.append({
+                        "type": "modified-old",
+                        "line_a": i1 + k + 1,
+                        "line_b": None,
+                        "content": a_lines[k],
+                    })
+                    current_hunk.append({
+                        "type": "modified-new",
+                        "line_a": None,
+                        "line_b": j1 + k + 1,
+                        "content": b_lines[k],
+                    })
+                    total_modified += 1
+                elif k < len(a_lines):
+                    current_hunk.append({
+                        "type": "deleted",
+                        "line_a": i1 + k + 1,
+                        "line_b": None,
+                        "content": a_lines[k],
+                    })
+                    total_deleted += 1
+                else:
+                    current_hunk.append({
+                        "type": "added",
+                        "line_a": None,
+                        "line_b": j1 + k + 1,
+                        "content": b_lines[k],
+                    })
+                    total_added += 1
+            last_i = i2 - 1
+            last_j = j2 - 1
+        elif tag == "delete":
+            if hunk_start_i is None or hunk_start_j is None:
+                hunk_start_i = max(0, i1 - context_lines)
+                hunk_start_j = max(0, j1 - context_lines)
+                current_hunk = []
+                for ctx_idx in range(context_lines):
+                    ctx_i = i1 - context_lines + ctx_idx
+                    ctx_j = j1 - context_lines + ctx_idx
+                    if ctx_i >= 0 and ctx_j >= 0 and ctx_i < i1 and ctx_j < j1:
+                        current_hunk.append({
+                            "type": "equal",
+                            "line_a": ctx_i + 1,
+                            "line_b": ctx_j + 1,
+                            "content": lines_a[ctx_i],
+                        })
+            for k, line in enumerate(lines_a[i1:i2]):
+                current_hunk.append({
+                    "type": "deleted",
+                    "line_a": i1 + k + 1,
+                    "line_b": None,
+                    "content": line,
+                })
+                total_deleted += 1
+            last_i = i2 - 1
+            last_j = j1 - 1
+        elif tag == "insert":
+            if hunk_start_i is None or hunk_start_j is None:
+                hunk_start_i = max(0, i1 - context_lines)
+                hunk_start_j = max(0, j1 - context_lines)
+                current_hunk = []
+                for ctx_idx in range(context_lines):
+                    ctx_i = i1 - context_lines + ctx_idx
+                    ctx_j = j1 - context_lines + ctx_idx
+                    if ctx_i >= 0 and ctx_j >= 0 and ctx_i < i1 and ctx_j < j1:
+                        current_hunk.append({
+                            "type": "equal",
+                            "line_a": ctx_i + 1,
+                            "line_b": ctx_j + 1,
+                            "content": lines_a[ctx_i],
+                        })
+            for k, line in enumerate(lines_b[j1:j2]):
+                current_hunk.append({
+                    "type": "added",
+                    "line_a": None,
+                    "line_b": j1 + k + 1,
+                    "content": line,
+                })
+                total_added += 1
+            last_i = i1 - 1
+            last_j = j2 - 1
+
+    flush_hunk()
+
+    def esc(s):
+        return (
+            s.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\t", "    ")
+        )
+
+    html_parts = [
+        "<!DOCTYPE html>",
+        '<html lang="zh-CN">',
+        "<head>",
+        '<meta charset="UTF-8">',
+        "<title>文本对比报告</title>",
+        f"<style>{HTML_REPORT_CSS}</style>",
+        "</head>",
+        "<body>",
+        '<div class="report-header">',
+        "<h1>📄 文本对比报告</h1>",
+        '<div class="report-meta">',
+        f'<div class="meta-item">生成时间: <span>{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</span></div>',
+        f'<div class="meta-item">原始文件: <span>{esc(filename_a)}</span></div>',
+        f'<div class="meta-item">对比文件: <span>{esc(filename_b)}</span></div>',
+        "</div>",
+        '<div class="summary">',
+        f'<div class="summary-card added">+ {total_added} 新增</div>',
+        f'<div class="summary-card deleted">- {total_deleted} 删除</div>',
+        f'<div class="summary-card modified">~ {total_modified} 修改</div>',
+        "</div>",
+        "</div>",
+    ]
+
+    if hunks:
+        html_parts.append(
+            f'<div class="file-header"><span class="old">--- {esc(filename_a)}</span><span class="arrow">→</span><span class="new">+++ {esc(filename_b)}</span></div>'
+        )
+
+        for hunk in hunks:
+            hunk_header = f"@@ -{hunk['start_i']+1},{hunk['len_i']} +{hunk['start_j']+1},{hunk['len_j']} @@"
+            html_parts.append(f'<div class="hunk-header">{esc(hunk_header)}</div>')
+            html_parts.append('<table class="diff-table"><colgroup><col class="line-num"><col class="diff-gutter"><col class="content"><col class="line-num"><col class="diff-gutter"><col class="content"></colgroup><tbody>')
+
+            for row in hunk["rows"]:
+                rtype = row["type"]
+                line_a = row["line_a"]
+                line_b = row["line_b"]
+                content = esc(row["content"])
+
+                if rtype == "equal":
+                    html_parts.append(
+                        f'<tr class="equal">'
+                        f'<td class="line-num">{line_a}</td>'
+                        f'<td class="diff-gutter"> </td>'
+                        f'<td class="content">{content}</td>'
+                        f'<td class="line-num">{line_b}</td>'
+                        f'<td class="diff-gutter"> </td>'
+                        f'<td class="content">{content}</td>'
+                        f"</tr>"
+                    )
+                elif rtype == "deleted":
+                    html_parts.append(
+                        f'<tr class="deleted">'
+                        f'<td class="line-num">{line_a}</td>'
+                        f'<td class="diff-gutter deleted">-</td>'
+                        f'<td class="content">{content}</td>'
+                        f'<td class="empty"></td>'
+                        f'<td class="diff-gutter deleted"> </td>'
+                        f'<td class="content"></td>'
+                        f"</tr>"
+                    )
+                elif rtype == "added":
+                    html_parts.append(
+                        f'<tr class="added">'
+                        f'<td class="empty"></td>'
+                        f'<td class="diff-gutter added"> </td>'
+                        f'<td class="content"></td>'
+                        f'<td class="line-num">{line_b}</td>'
+                        f'<td class="diff-gutter added">+</td>'
+                        f'<td class="content">{content}</td>'
+                        f"</tr>"
+                    )
+                elif rtype == "modified-old":
+                    html_parts.append(
+                        f'<tr class="modified-old">'
+                        f'<td class="line-num">{line_a}</td>'
+                        f'<td class="diff-gutter modified">-</td>'
+                        f'<td class="content">{content}</td>'
+                        f'<td class="empty"></td>'
+                        f'<td class="diff-gutter modified"> </td>'
+                        f'<td class="content"></td>'
+                        f"</tr>"
+                    )
+                elif rtype == "modified-new":
+                    html_parts.append(
+                        f'<tr class="modified-new">'
+                        f'<td class="empty"></td>'
+                        f'<td class="diff-gutter modified"> </td>'
+                        f'<td class="content"></td>'
+                        f'<td class="line-num">{line_b}</td>'
+                        f'<td class="diff-gutter modified">+</td>'
+                        f'<td class="content">{content}</td>'
+                        f"</tr>"
+                    )
+
+            html_parts.append("</tbody></table>")
+
+    html_parts.append('<div class="footer">Generated by Text Diff Service</div>')
+    html_parts.append("</body></html>")
+
+    return "\n".join(html_parts), {
+        "added": total_added,
+        "deleted": total_deleted,
+        "modified": total_modified,
+    }
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -316,6 +730,39 @@ def api_compare_stream():
         stream_with_context(generate()),
         mimetype="application/x-ndjson; charset=utf-8",
         headers={"X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/api/compare/html", methods=["POST"])
+def api_compare_html():
+    if "file_a" not in request.files or "file_b" not in request.files:
+        return jsonify({"error": "请上传两个文件 (file_a, file_b)"}), 400
+
+    file_a = request.files["file_a"]
+    file_b = request.files["file_b"]
+
+    if file_a.filename == "" or file_b.filename == "":
+        return jsonify({"error": "文件名不能为空"}), 400
+
+    try:
+        text_a = file_a.read().decode("utf-8", errors="replace")
+        text_b = file_b.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        return jsonify({"error": f"读取文件失败: {str(e)}"}), 400
+
+    lines_a = [line.rstrip("\n\r") for line in text_a.splitlines() if line or True]
+    lines_b = [line.rstrip("\n\r") for line in text_b.splitlines() if line or True]
+
+    html_content, stats = generate_html_report(
+        lines_a, lines_b, file_a.filename, file_b.filename
+    )
+
+    return Response(
+        html_content,
+        mimetype="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": f"inline; filename=\"diff_report.html\""
+        },
     )
 
 
