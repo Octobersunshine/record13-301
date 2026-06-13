@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>文本文件对比服务</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:#f0f2f5;color:#333;min-height:100vh}
+.container{max-width:1100px;margin:0 auto;padding:30px 20px}
+h1{text-align:center;font-size:1.8rem;margin-bottom:8px;color:#1a1a2e}
+.subtitle{text-align:center;color:#666;margin-bottom:30px;font-size:.95rem}
+.upload-area{display:flex;gap:20px;margin-bottom:24px}
+.upload-box{flex:1;background:#fff;border:2px dashed #c0c6d0;border-radius:12px;padding:30px 20px;text-align:center;cursor:pointer;transition:all .25s}
+.upload-box:hover{border-color:#4361ee;background:#f8f9ff}
+.upload-box.has-file{border-color:#4361ee;border-style:solid;background:#f0f3ff}
+.upload-box .icon{font-size:2.2rem;margin-bottom:8px}
+.upload-box .label{font-weight:600;font-size:1rem;margin-bottom:4px}
+.upload-box .hint{font-size:.82rem;color:#999}
+.upload-box .filename{font-size:.88rem;color:#4361ee;margin-top:8px;font-weight:500;word-break:break-all}
+.upload-box input[type=file]{display:none}
+.btn-row{text-align:center;margin-bottom:30px}
+.btn-compare{background:#4361ee;color:#fff;border:none;padding:12px 48px;border-radius:8px;font-size:1.05rem;font-weight:600;cursor:pointer;transition:background .2s}
+.btn-compare:hover{background:#3a56d4}
+.btn-compare:disabled{background:#a0a8c0;cursor:not-allowed}
+.result{display:none}
+.result.visible{display:block}
+.summary{display:flex;gap:16px;margin-bottom:24px;justify-content:center}
+.summary-card{background:#fff;border-radius:10px;padding:16px 28px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.summary-card .num{font-size:1.6rem;font-weight:700}
+.summary-card .lbl{font-size:.82rem;color:#888;margin-top:2px}
+.summary-card.added .num{color:#2ecc71}
+.summary-card.deleted .num{color:#e74c3c}
+.summary-card.modified .num{color:#f39c12}
+.tabs{display:flex;gap:0;margin-bottom:0;border-bottom:2px solid #e0e4ea}
+.tab{padding:10px 22px;cursor:pointer;font-size:.92rem;font-weight:500;color:#666;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .2s;user-select:none}
+.tab:hover{color:#4361ee}
+.tab.active{color:#4361ee;border-bottom-color:#4361ee}
+.tab-panel{display:none;background:#fff;border-radius:0 0 10px 10px;box-shadow:0 1px 4px rgba(0,0,0,.06);overflow:hidden}
+.tab-panel.active{display:block}
+.diff-table{width:100%;border-collapse:collapse;font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;font-size:.85rem;line-height:1.6}
+.diff-table td,.diff-table th{padding:2px 12px;text-align:left;white-space:pre-wrap;word-break:break-all}
+.diff-table th{background:#f7f8fa;color:#888;font-weight:500;font-size:.8rem;width:50px;text-align:center}
+.diff-row-equal{background:#fff}
+.diff-row-equal td:nth-child(2){color:#666}
+.diff-row-added{background:#e6ffec}
+.diff-row-added td:nth-child(2){color:#1a7f37}
+.diff-row-deleted{background:#ffebe9}
+.diff-row-deleted td:nth-child(2){color:#cf222e}
+.diff-row-modified{background:#fff8c5}
+.diff-row-modified td:nth-child(2){color:#9a6700}
+.diff-row-modified .old-content{text-decoration:line-through;opacity:.7;color:#cf222e}
+.diff-row-modified .new-content{color:#1a7f37}
+.unified-pre{margin:0;padding:16px;font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;font-size:.85rem;line-height:1.6;white-space:pre-wrap;word-break:break-all;background:#fafbfc;max-height:600px;overflow:auto}
+.unified-pre .u-add{background:#e6ffec;color:#1a7f37}
+.unified-pre .u-del{background:#ffebe9;color:#cf222e}
+.unified-pre .u-hdr{background:#f0f3ff;color:#4361ee;font-weight:600}
+.unified-pre .u-ctx{color:#888}
+.error-msg{background:#ffebe9;color:#cf222e;padding:14px 20px;border-radius:8px;text-align:center;font-weight:500;margin-bottom:20px}
+.loading{text-align:center;padding:40px;display:none}
+.loading.visible{display:block}
+.spinner{display:inline-block;width:32px;height:32px;border:3px solid #e0e4ea;border-top-color:#4361ee;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📄 文本文件对比服务</h1>
+  <p class="subtitle">上传两个文本文件，快速查看新增 / 删除 / 修改的差异行</p>
+
+  <div class="upload-area">
+    <div class="upload-box" id="box-a" onclick="document.getElementById('file-a').click()">
+      <div class="icon">📁</div>
+      <div class="label">原始文件 (A)</div>
+      <div class="hint">点击或拖拽上传</div>
+      <div class="filename" id="name-a"></div>
+      <input type="file" id="file-a" accept=".txt,.py,.js,.ts,.json,.xml,.html,.css,.md,.csv,.log,.yaml,.yml,.toml,.cfg,.ini,.sh,.bat,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.sql,.env">
+    </div>
+    <div class="upload-box" id="box-b" onclick="document.getElementById('file-b').click()">
+      <div class="icon">📁</div>
+      <div class="label">对比文件 (B)</div>
+      <div class="hint">点击或拖拽上传</div>
+      <div class="filename" id="name-b"></div>
+      <input type="file" id="file-b" accept=".txt,.py,.js,.ts,.json,.xml,.html,.css,.md,.csv,.log,.yaml,.yml,.toml,.cfg,.ini,.sh,.bat,.java,.c,.cpp,.h,.go,.rs,.rb,.php,.sql,.env">
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-compare" id="btn-compare" disabled>开始对比</button>
+  </div>
+
+  <div class="loading" id="loading"><div class="spinner"></div><p style="margin-top:12px;color:#888">正在对比...</p></div>
+
+  <div class="result" id="result">
+    <div class="summary">
+      <div class="summary-card added"><div class="num" id="cnt-add">0</div><div class="lbl">新增行</div></div>
+      <div class="summary-card deleted"><div class="num" id="cnt-del">0</div><div class="lbl">删除行</div></div>
+      <div class="summary-card modified"><div class="num" id="cnt-mod">0</div><div class="lbl">修改行</div></div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="visual">可视化对比</div>
+      <div class="tab" data-tab="unified">Unified Diff</div>
+    </div>
+
+    <div class="tab-panel active" id="panel-visual">
+      <table class="diff-table" id="diff-table">
+        <thead><tr><th>行号</th><th>内容</th></tr></thead>
+        <tbody id="diff-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="tab-panel" id="panel-unified">
+      <pre class="unified-pre" id="unified-pre"></pre>
+    </div>
+  </div>
+
+  <div class="error-msg" id="error-msg" style="display:none"></div>
+</div>
+
+<script>
+const fileA = document.getElementById('file-a');
+const fileB = document.getElementById('file-b');
+const boxA = document.getElementById('box-a');
+const boxB = document.getElementById('box-b');
+const nameA = document.getElementById('name-a');
+const nameB = document.getElementById('name-b');
+const btn = document.getElementById('btn-compare');
+const loading = document.getElementById('loading');
+const result = document.getElementById('result');
+const errMsg = document.getElementById('error-msg');
+
+function updateBtn() {
+  btn.disabled = !(fileA.files.length && fileB.files.length);
+}
+fileA.addEventListener('change', () => {
+  if (fileA.files.length) {
+    nameA.textContent = fileA.files[0].name;
+    boxA.classList.add('has-file');
+  }
+  updateBtn();
+});
+fileB.addEventListener('change', () => {
+  if (fileB.files.length) {
+    nameB.textContent = fileB.files[0].name;
+    boxB.classList.add('has-file');
+  }
+  updateBtn();
+});
+
+['box-a','box-b'].forEach(id => {
+  const box = document.getElementById(id);
+  box.addEventListener('dragover', e => { e.preventDefault(); box.style.borderColor='#4361ee'; });
+  box.addEventListener('dragleave', () => { box.style.borderColor=''; });
+  box.addEventListener('drop', e => {
+    e.preventDefault();
+    box.style.borderColor='';
+    const inp = box.querySelector('input');
+    if (e.dataTransfer.files.length) {
+      inp.files = e.dataTransfer.files;
+      inp.dispatchEvent(new Event('change'));
+    }
+  });
+});
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+btn.addEventListener('click', async () => {
+  const fd = new FormData();
+  fd.append('file_a', fileA.files[0]);
+  fd.append('file_b', fileB.files[0]);
+  fd.append('chunk_size', 5000);
+  fd.append('overlap_size', 500);
+  loading.classList.add('visible');
+  result.classList.remove('visible');
+  errMsg.style.display = 'none';
+  btn.disabled = true;
+  resetResult();
+
+  try {
+    const resp = await fetch('/api/compare/stream', { method: 'POST', body: fd });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || '对比失败');
+    }
+    await streamRender(resp);
+  } catch (e) {
+    errMsg.textContent = e.message;
+    errMsg.style.display = 'block';
+  } finally {
+    loading.classList.remove('visible');
+    btn.disabled = false;
+  }
+});
+
+function resetResult() {
+  document.getElementById('cnt-add').textContent = '0';
+  document.getElementById('cnt-del').textContent = '0';
+  document.getElementById('cnt-mod').textContent = '0';
+  document.getElementById('diff-tbody').innerHTML = '';
+  document.getElementById('unified-pre').innerHTML = '';
+  window._streamStats = { added: 0, deleted: 0, modified: 0 };
+}
+
+async function streamRender(resp) {
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let started = false;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx;
+    while ((idx = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line) continue;
+
+      try {
+        const data = JSON.parse(line);
+        handleStreamEvent(data);
+        if (!started) {
+          started = true;
+          result.classList.add('visible');
+        }
+      } catch (e) {
+        console.warn('parse line failed:', e, line);
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    try {
+      const data = JSON.parse(buffer.trim());
+      handleStreamEvent(data);
+    } catch (e) {
+      console.warn('parse tail failed:', e);
+    }
+  }
+}
+
+function handleStreamEvent(data) {
+  if (data.type === 'start') {
+    // 可以在这里初始化
+  } else if (data.type === 'chunk') {
+    appendChunk(data);
+  } else if (data.type === 'end') {
+    // 对比完成
+  } else if (data.type === 'error') {
+    errMsg.textContent = data.error || '流式对比出错';
+    errMsg.style.display = 'block';
+  }
+}
+
+function appendChunk(chunk) {
+  const stats = window._streamStats;
+  stats.added += chunk.chunk_summary.added;
+  stats.deleted += chunk.chunk_summary.deleted;
+  stats.modified += chunk.chunk_summary.modified;
+
+  document.getElementById('cnt-add').textContent = stats.added;
+  document.getElementById('cnt-del').textContent = stats.deleted;
+  document.getElementById('cnt-mod').textContent = stats.modified;
+
+  const tbody = document.getElementById('diff-tbody');
+  const frag = document.createDocumentFragment();
+
+  chunk.lines.forEach(line => {
+    const tr = document.createElement('tr');
+    if (line.type === 'equal') {
+      tr.className = 'diff-row-equal';
+      tr.innerHTML = '<td></td><td>' + esc(line.content) + '</td>';
+    } else if (line.type === 'added') {
+      tr.className = 'diff-row-added';
+      tr.innerHTML = '<td>+</td><td>' + esc(line.content) + '</td>';
+    } else if (line.type === 'deleted') {
+      tr.className = 'diff-row-deleted';
+      tr.innerHTML = '<td>-</td><td>' + esc(line.content) + '</td>';
+    } else if (line.type === 'modified') {
+      tr.className = 'diff-row-modified';
+      tr.innerHTML = '<td>~</td><td><span class="old-content">' + esc(line.old_content) + '</span> → <span class="new-content">' + esc(line.new_content) + '</span></td>';
+    }
+    frag.appendChild(tr);
+  });
+
+  tbody.appendChild(frag);
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// 保留旧的 render 函数用于普通 API（如有需要）
+function render(data) {
+  document.getElementById('cnt-add').textContent = data.summary.added;
+  document.getElementById('cnt-del').textContent = data.summary.deleted;
+  document.getElementById('cnt-mod').textContent = data.summary.modified;
+
+  const tbody = document.getElementById('diff-tbody');
+  tbody.innerHTML = '';
+  data.unified_lines.forEach(line => {
+    const tr = document.createElement('tr');
+    if (line.type === 'equal') {
+      tr.className = 'diff-row-equal';
+      tr.innerHTML = '<td></td><td>' + esc(line.content) + '</td>';
+    } else if (line.type === 'added') {
+      tr.className = 'diff-row-added';
+      tr.innerHTML = '<td>+</td><td>' + esc(line.content) + '</td>';
+    } else if (line.type === 'deleted') {
+      tr.className = 'diff-row-deleted';
+      tr.innerHTML = '<td>-</td><td>' + esc(line.content) + '</td>';
+    } else if (line.type === 'modified') {
+      tr.className = 'diff-row-modified';
+      tr.innerHTML = '<td>~</td><td><span class="old-content">' + esc(line.old_content) + '</span> → <span class="new-content">' + esc(line.new_content) + '</span></td>';
+    }
+    tbody.appendChild(tr);
+  });
+
+  const pre = document.getElementById('unified-pre');
+  pre.innerHTML = '';
+  if (data.unified_diff) {
+    data.unified_diff.forEach(line => {
+      const span = document.createElement('span');
+      if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) {
+        span.className = 'u-hdr';
+      } else if (line.startsWith('+')) {
+        span.className = 'u-add';
+      } else if (line.startsWith('-')) {
+        span.className = 'u-del';
+      } else {
+        span.className = 'u-ctx';
+      }
+      span.textContent = line + '\n';
+      pre.appendChild(span);
+    });
+  }
+
+  result.classList.add('visible');
+}
+</script>
+</body>
+</html>
